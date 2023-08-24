@@ -1,0 +1,21 @@
+rman target sys/password@dbname log /tmp/recover_tablexyz.log      
+run {
+RECOVER TABLE schemaname."tablename" OF PLUGGABLE DATABASE pluggabledbname
+UNTIL SEQUENCE 42032 thread 1
+AUXILIARY DESTINATION '/data/orabackup/clonefimdim/'
+datapump destination '/data/orabackup/clonefimdim/dpump/'
+dump file 'exportFimdim1108.dmp'
+notableimport;
+}
+
+
+
+
+***restorede yeni oluşan dbnin memory parametreleri mevcut db ile aynı oluyor. farklı size vermek için aşağıdaki gibi parametre verilebilir:
+run {
+SET AUXILIARY INSTANCE PARAMETER FILE TO '/<path>/init_aux.ora';
+recover table scott.test_tab until scn 1796160 auxiliary destination
+'/<path>/aux';
+}
+
+https://support.oracle.com/epmos/faces/DocumentDisplay?_afrLoop=382135582458235&id=2430319.1&_adf.ctrl-state=8epnazxog_60
