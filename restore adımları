@@ -1,0 +1,63 @@
+- pfile düzenleyip nomount modda aç;
+startup nomount pfile='/home/oracle/pfiledbname.txt';
+
+- canlıdancontrolfile backlup al
+backup current controlfile for standby format '/home/oracle/controlfiledbname';
+-  yeni kuracağın ortamda restore et
+restore standby controlfile from '/home/oracle/controlfiledbname';
+
+restore ettiğin control fileı pfileda control file parametresine yaz. dbyi kapatıp mount modda başlat
+
+- restore adımları:
+backupı catalogla
+catalog start with  '/db_backup/dbnamebackup/';
+
+
+spool LOG to  '/db_backup/restore/restore_dbname.log'
+
+rman target / << EOF
+run
+{
+allocate channel c1 device type disk;
+allocate channel c2 device type disk;
+allocate channel c3 device type disk;
+allocate channel c4 device type disk;
+restore database;	
+switch datafile	all;
+recover database;
+release channel c1;
+release channel c2;
+release channel c3;
+release channel c4;
+}
+EOF
+exit
+
+
+run
+{
+allocate channel c1 device type disk;
+allocate channel c2 device type disk;
+allocate channel c3 device type disk;
+allocate channel c4 device type disk;
+restore database;	
+switch datafile	all;
+recover database;
+release channel c1;
+release channel c2;
+release channel c3;
+release channel c4;
+}
+
+- standby logfile ekle
+ALTER DATABASE ADD STANDBY LOGFILE group 11 ('+FRA') SIZE 209715200;
+ALTER DATABASE ADD STANDBY LOGFILE group 12 ('+FRA') SIZE 209715200;
+- mevcut logfileları drop et
+ALTER DATABASE DROP LOGFILE GROUP 1;
+ALTER DATABASE DROP LOGFILE GROUP 2;
+
+
+bittikten sonra gerekli configürasyonları yapıp MRP başlat
+
+
+pwcopy --dbuniquename ARESDRC /u02/app/oracle/product/19.0.0.0/dbhome_2/dbs/orapwARESDRC '+DATAC1/ARESDRC/'
