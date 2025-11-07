@@ -1,0 +1,367 @@
+2. Primary Database Enable Force Logging
+
+SQL> select name, open_mode,cdb from v$database;
+
+NAME      OPEN_MODE            CDB
+--------- -------------------- ---
+ZEUS     READ WRITE           NO
+
+SQL> select force_logging from v$database;
+
+FORCE_LOGGING
+---------------------------------------
+NO
+
+SQL> ALTER DATABASE FORCE LOGGING;
+
+Database altered.
+
+SQL> select force_logging from v$database;
+
+FORCE_LOGGING
+---------------------------------------
+YES
+
+3. Password File oluşrurulması ve passwd dosyasını Primaryden Standby Tarafında Kopyalanması
+
+SQL>alter user SYS identified by "xxxx";
+
+orapwd file=$ORACLE_HOME/dbs/orapw$ORACLE_SID password=Welcome1* entries=100 ignorecase=Y  FORCE=Y
+
+scp orapwZEUS1 marsmsucl01:/u02/app/oracle/product/19.0.0.0/dbhome_2/dbs/orapwZEUSSTBYY1
+
+4. Standby Redo Log Ayarları Primary Veritabanı Tarafında Yapılır.
+
+SQL> set lines 180
+SQL> col MEMBER for a60
+SQL> select b.thread#, a.group#, a.member, b.bytes FROM v$logfile a, v$log b WHERE a.group# = b.group#;
+
+   THREAD#     GROUP# MEMBER                                                            BYTES
+---------- ---------- ------------------------------------------------------------ ----------
+         1          1 +DATA/ZEUS/ONLINELOG/group_1.263.1059316937                  209715200
+         1          1 +FRA/ZEUS/ONLINELOG/group_1.257.1059316939                   209715200
+         1          2 +DATA/ZEUS/ONLINELOG/group_2.264.1059316941                  209715200
+         1          2 +FRA/ZEUS/ONLINELOG/group_2.258.1059316943                   209715200
+         2          3 +DATA/ZEUS/ONLINELOG/group_3.271.1059318871                  209715200
+         2          3 +FRA/ZEUS/ONLINELOG/group_3.259.1059318873                   209715200
+         2          4 +DATA/ZEUS/ONLINELOG/group_4.272.1059318877                  209715200
+         2          4 +FRA/ZEUS/ONLINELOG/group_4.260.1059318879                   209715200
+
+SQL>alter database add standby logfile thread 1 group 2 size 6144M, group 3 size 6144M, group 5 size 6144M, group 6 size 6144M;
+SQL>alter database add standby logfile thread 2 group 15 size 6144M, group 16 size 6144M, group 17 size 6144M, group 18 size 6144M;
+
+SQL>select * from v$logfile;
+
+    GROUP# STATUS  TYPE    MEMBER                                                       IS_     CON_ID
+---------- ------- ------- ------------------------------------------------------------ --- ----------
+         1         ONLINE  +DATA/ZEUS/ONLINELOG/group_1.263.1059316937                 NO           0
+         1         ONLINE  +FRA/ZEUS/ONLINELOG/group_1.257.1059316939                  YES          0
+         2         ONLINE  +DATA/ZEUS/ONLINELOG/group_2.264.1059316941                 NO           0
+         2         ONLINE  +FRA/ZEUS/ONLINELOG/group_2.258.1059316943                  YES          0
+         3         ONLINE  +DATA/ZEUS/ONLINELOG/group_3.271.1059318871                 NO           0
+         3         ONLINE  +FRA/ZEUS/ONLINELOG/group_3.259.1059318873                  YES          0
+         4         ONLINE  +DATA/ZEUS/ONLINELOG/group_4.272.1059318877                 NO           0
+         4         ONLINE  +FRA/ZEUS/ONLINELOG/group_4.260.1059318879                  YES          0
+         5         STANDBY +DATA/ZEUS/ONLINELOG/group_5.258.1061553937                 NO           0
+         5         STANDBY +FRA/ZEUS/ONLINELOG/group_5.284.1061553939                  YES          0
+         6         STANDBY +DATA/ZEUS/ONLINELOG/group_6.279.1061553941                 NO           0
+		 
+6. Primary Veriatabanı Inıtialization Parameterelerini Ayarlanması
+
+SQL> create pfile='/home/oracle/initZEUS_BeforeDG.ora.bck' from spfile;
+
+SQL> ALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=(ZEUS,ZEUSSTBY)' scope=both sid='*';
+
+SQL> ALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=+FRA VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME=ZEUS' scope=both sid='*';
+
+SQL> ALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE=ZEUSSTBY LGWR ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME=ZEUSSTBY' scope=both sid='*';
+
+SQL> ALTER SYSTEM SET LOG_ARCHIVE_DEST_STATE_1=ENABLE scope=both sid='*';
+
+SQL> ALTER SYSTEM SET LOG_ARCHIVE_DEST_STATE_2=ENABLE scope=both sid='*';
+
+SQL> ALTER SYSTEM SET STANDBY_FILE_MANAGEMENT=AUTO scope=both sid='*';
+
+SQL> create pfile='/home/oracle/initZEUSafter.ora' from spfile;
+
+7.0. En altta yazan wallet bilgilerini prod ortamdan alıp standby uniq name ile yazılması gerekiyor.(oracle user ile)
+
+SQL> set linesize 200
+SQL> col WALLET_DIR for a100
+SQL> col status for a21
+SQL> select STATUS,WRL_PARAMETER WALLET_DIR,WALLET_TYPE from V$ENCRYPTION_WALLET;
+
+STATUS                WALLET_DIR                       			    WALLET_TYPE
+--------------------- -------------------------------- 			    --------------------
+OPEN                  /var/opt/oracle/dbaas_acfs/ZEUSSTBY/wallet_root/tde/  AUTOLOGIN
+OPEN                                                   			    AUTOLOGIN
+OPEN                                                   			    AUTOLOGIN
+
+7.1. Standby tarafında init.ora dosyası oluşturulur.
+
+*._always_anti_join='CHOOSE'
+*._always_semi_join='CHOOSE'
+*._b_tree_bitmap_plans=TRUE
+*._bloom_serial_filter='ON'
+*._complex_view_merging=TRUE
+*._compression_compatibility='19.0.0'
+*._ds_xt_split_count=1
+*._eliminate_common_subexpr=TRUE
+*._fast_full_scan_enabled=TRUE
+*._generalized_pruning_enabled=TRUE
+*._gs_anti_semi_join_allowed=TRUE
+*._hang_resolution_scope='INSTANCE'# _hang_resolution_scope updated by kjznpahps
+*._improved_outerjoin_card=TRUE
+*._improved_row_length_enabled=TRUE
+*._index_join_enabled=TRUE
+*._key_vector_create_pushdown_threshold=20000
+*._ksb_restart_policy_times='0','60','120','240'# internal update to set default
+*._left_nested_loops_random=TRUE
+*._mv_access_compute_fresh_data='ON'
+*._new_initial_join_orders=TRUE
+*._new_sort_cost_estimate=TRUE
+*._nlj_batching_enabled=1
+*._optim_enhance_nnull_detection=TRUE
+*._optim_peek_user_binds=TRUE
+*._optimizer_ads_use_partial_results=TRUE
+*._optimizer_better_inlist_costing='ALL'
+*._optimizer_cbqt_or_expansion='ON'
+*._optimizer_cluster_by_rowid_control=129
+*._optimizer_control_shard_qry_processing=65528
+*._optimizer_cost_based_transformation='LINEAR'
+*._optimizer_cost_model='CHOOSE'
+*._optimizer_extended_cursor_sharing='UDO'
+*._optimizer_extended_cursor_sharing_rel='SIMPLE'
+*._optimizer_extended_stats_usage_control=192
+*._optimizer_join_order_control=3
+*._optimizer_max_permutations=2000
+*._optimizer_mode_force=TRUE
+*._optimizer_native_full_outer_join='FORCE'
+*._optimizer_or_expansion='DEPTH'
+*._optimizer_proc_rate_level='BASIC'
+*._optimizer_system_stats_usage=TRUE
+*._optimizer_try_st_before_jppd=TRUE
+*._optimizer_use_cbqt_star_transformation=TRUE
+*._or_expand_nvl_predicate=TRUE
+*._ordered_nested_loop=TRUE
+*._parallel_broadcast_enabled=TRUE
+*._pivot_implementation_method='CHOOSE'
+*._pred_move_around=TRUE
+*._push_join_predicate=TRUE
+*._push_join_union_view=TRUE
+*._push_join_union_view2=TRUE
+*._px_dist_agg_partial_rollup_pushdown='ADAPTIVE'
+*._px_groupby_pushdown='FORCE'
+*._px_partial_rollup_pushdown='ADAPTIVE'
+*._px_shared_hash_join=FALSE
+*._px_wif_dfo_declumping='CHOOSE'
+*._sql_model_unfold_forloops='RUN_TIME'
+*._subquery_pruning_mv_enabled=FALSE
+*._table_scan_cost_plus_one=TRUE
+*._union_rewrite_for_gs='YES_GSET_MVS'
+*._unnest_subquery=TRUE
+*._use_column_stats_for_function=TRUE
+*._xt_sampling_scan_granules='ON'
+*.cluster_database=TRUE
+*.connection_brokers='((TYPE=DEDICATED)(BROKERS=1))','((TYPE=EMON)(BROKERS=1))'# connection_brokers default value
+*.cpu_count=4
+*.cpu_min_count='4'
+*.db_block_size=8192
+*.db_create_file_dest='+DATAC2'
+*.db_create_online_log_dest_1='+DATAC2'
+*.db_file_name_convert='+DATAC2/ZEUS/DATAFILE','+DATAC2/ZEUSSTBY/DATAFILE',
+'+DATAC2/ZEUS/D9C94980135CABF5E0530B3E140AE614/DATAFILE','+DATAC2/ZEUSSTBY/D9C94980135CABF5E0530B3E140AE614/DATAFILE',
+'+DATAC2/ZEUS/B9290254CCC80FCCE053C00DD10A055E/DATAFILE','+DATAC2/ZEUSSTBY/B9290254CCC80FCCE053C00DD10A055E/DATAFILE',
+'+DATAC2/ZEUS/D9C9208AB203B7EAE0530B3E140AC9F6/DATAFILE','+DATAC2/ZEUSSTBY/D9C9208AB203B7EAE0530B3E140AC9F6/DATAFILE',
+'+DATAC2/ZEUS/TEMPFILE','+DATAC2/ZEUSSTBY/TEMPFILE',
+'+DATAC2/ZEUS/D9C94980135CABF5E0530B3E140AE614/TEMPFILE','+DATAC2/ZEUSSTBY/D9C94980135CABF5E0530B3E140AE614/TEMPFILE',
+'+DATAC2/ZEUS/B9290254CCC80FCCE053C00DD10A055E/TEMPFILE','+DATAC2/ZEUSSTBY/B9290254CCC80FCCE053C00DD10A055E/TEMPFILE',
+'+DATAC2/ZEUS/D9C9208AB203B7EAE0530B3E140AC9F6/TEMPFILE','+DATAC2/ZEUSSTBY/D9C9208AB203B7EAE0530B3E140AC9F6/TEMPFILE'
+*.db_files=3000
+*.db_name='ZEUS'
+*.db_recovery_file_dest='+RECOC2'
+*.db_recovery_file_dest_size=42000G
+*.db_unique_name='ZEUSSTBY'
+*.enable_pluggable_database=TRUE
+*.fal_client='ZEUSSTBY'
+*.fal_server='ZEUS'
+*.log_archive_config='DG_CONFIG=(ZEUS,ZEUSSTBY)'
+*.log_archive_dest_1='LOCATION=+RECOC2 VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME=ZEUSSTBY'
+*.log_archive_dest_2='SERVICE=ZEUS LGWR ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME=ZEUS'
+*.log_archive_dest_state_1='ENABLE'
+*.log_archive_dest_state_2='ENABLE'
+*.log_file_name_convert='+DATAC2/ZEUS/ONLINELOG','+DATAC2/ZEUSSTBY/ONLINELOG'
+*.open_cursors=500
+*.optimizer_mode='ALL_ROWS'
+*.pga_aggregate_limit=40G
+*.pga_aggregate_target=10G
+*.plsql_warnings='DISABLE:ALL'# PL/SQL warnings at init.ora
+*.processes=500
+*.query_rewrite_enabled='TRUE'
+*.remote_login_passwordfile='EXCLUSIVE'
+*.result_cache_max_size=209728K
+*.sga_max_size=90G# internally adjusted
+*.sga_target=90G
+*.standby_file_management='AUTO'
+*.tde_configuration='KEYSTORE_CONFIGURATION=FILE'
+*.use_large_pages='ONLY'
+*.wallet_root='/var/opt/oracle/dbaas_acfs/ZEUSSTBY/wallet_root'
+ZEUSSTBY2.instance_number=2
+ZEUSSTBY1.instance_number=1
+ZEUSSTBY1.sga_max_size=96636764160
+ZEUSSTBY2.sga_max_size=96636764160
+ZEUSSTBY2.thread=2
+ZEUSSTBY1.thread=1
+ZEUS1.undo_tablespace='UNDOTBS1'
+ZEUS2.undo_tablespace='UNDOTBS2'
+ 
+8. Standby tarafında listener oluşturulur.
+
+LISTENER2 =
+  (DESCRIPTION_LIST =
+    (DESCRIPTION =
+      (ADDRESS = (PROTOCOL = TCP)(HOST = 10.20.62.23)(PORT = 1521))
+      (ADDRESS = (PROTOCOL = IPC)(KEY = EXTPROC1521))
+    )
+  )
+
+ENABLE_GLOBAL_DYNAMIC_ENDPOINT_LISTENER2=ON             # line added by Agent
+VALID_NODE_CHECKING_REGISTRATION_LISTENER2=ON           # line added by Agent
+
+SID_LIST_LISTENER2 =
+  (SID_LIST =
+    (SID_DESC =
+      (ORACLE_HOME = /u02/app/oracle/product/19.0.0.0/dbhome_2)
+      (SID_NAME = ZEUSSTBY1)
+    )
+  )
+
+9. TNS bilgileri prod ve standby tarafına kopyalanır.
+
+ZEUS=
+    (DESCRIPTION=
+      (ADDRESS=
+        (PROTOCOL=TCP)
+        (HOST=10.20.62.13)
+        (PORT=1521))
+      (CONNECT_DATA=
+        (SERVER=DEDICATED)
+        (SERVICE_NAME=ZEUS.est.kartal)
+        (FAILOVER_MODE=
+          (TYPE=select)
+          (METHOD=basic))))
+		  
+ZEUSSTBY=
+  (DESCRIPTION=
+    (ADDRESS=
+      (PROTOCOL=TCP)
+      (HOST=10.20.62.23)
+      (PORT=1522)
+    )
+    (CONNECT_DATA=
+      (SERVICE_NAME=ZEUSSTBY1)(UR=A)
+    )
+  )  
+
+10. TNS bilgileri ile prod sunucusu üzerinden bağlantı testleri yapılır.
+
+[oracle@venusmsucl01 admin]$ rman target SYS auxiliary SYS@ZEUSSTBY
+
+Recovery Manager: Release 19.0.0.0.0 - Production on Tue Apr 19 19:12:10 2022
+Version 19.14.0.0.0
+
+Copyright (c) 1982, 2019, Oracle and/or its affiliates.  All rights reserved.
+
+target database Password: 
+connected to target database: ZEUS (DBID=643764831)
+auxiliary database Password: 
+connected to auxiliary database: ZEUS (not mounted)
+
+RMAN> 
+
+11. Bağlantı başarılı olduğuna göre duplicate işlemine başlayabiliriz.
+
+rman target SYS/"a5i6EX_YQKjq#Dn" auxiliary SYS/"a5i6EX_YQKjq#Dn"@ZEUSSTBY
+
+RMAN>run {
+ALLOCATE CHANNEL t1 DEVICE TYPE disk;
+ALLOCATE CHANNEL t2 DEVICE TYPE disk;
+ALLOCATE CHANNEL t3 DEVICE TYPE disk;
+ALLOCATE CHANNEL t4 DEVICE TYPE disk;
+ 
+ALLOCATE AUXILIARY CHANNEL a1 DEVICE TYPE disk;
+ALLOCATE AUXILIARY CHANNEL a2 DEVICE TYPE disk;
+ALLOCATE AUXILIARY CHANNEL a3 DEVICE TYPE disk;
+ALLOCATE AUXILIARY CHANNEL a4 DEVICE TYPE disk;
+ 
+duplicate target database for standby from active database nofilenamecheck;
+}
+
+12.Prod ortamdaki sqlnet.ora içeriği standby ortama kopyalanır. İçerik kopyalanırken standby uniq_name ile değiştirilir.
+
+cd /u02/app/oracle/product/19.0.0.0/dbhome_1/network/admin
+mkdir ZEUSSTBY 
+cd /u02/app/oracle/product/19.0.0.0/dbhome_1/network/admin/ZEUSSTBY
+
+vi sqlnet.ora
+
+HTTPS_SSL_VERSION=1.2
+SQLNET.ALLOWED_LOGON_VERSION_SERVER=8
+SQLNET.EXPIRE_TIME=10
+SQLNET.WALLET_OVERRIDE=FALSE
+SSL_CLIENT_AUTHENTICATION=FALSE
+SSL_VERSION=1.2
+WALLET_LOCATION=
+    (SOURCE=
+      (METHOD=FILE)
+      (METHOD_DATA=(DIRECTORY=/var/opt/oracle/dbaas_acfs/ZEUSSTBY/db_wallet)))
+ENCRYPTION_WALLET_LOCATION=
+    (SOURCE=
+      (METHOD=FILE)
+      (METHOD_DATA=(DIRECTORY=/var/opt/oracle/dbaas_acfs/ZEUSSTBY/wallet_root/tde)))
+
+DIAG_ADR_ENABLED= OFF 
+
+13.Son olarak Prod ortamdaki wallet dosyaları standby makinelerine kopyalanır.
+
+cd /var/opt/oracle/dbaas_acfs/ZEUS
+
+scp -r * marsmsucl01:/var/opt/oracle/dbaas_acfs/ZEUSSTBY
+scp -r * marsmsucl02:/var/opt/oracle/dbaas_acfs/ZEUSSTBY
+
+14. Select sonucu aşağıdaki gibi geliyorsa sıkıntı yok demektir.
+
+SQL> set linesize 200
+SQL> col WALLET_DIR for a32
+SQL> col status for a21
+SQL> select STATUS,WRL_PARAMETER WALLET_DIR,WALLET_TYPE from V$ENCRYPTION_WALLET;
+
+STATUS                WALLET_DIR                       WALLET_TYPE
+--------------------- -------------------------------- --------------------
+OPEN                  /var/opt/oracle/dbaas_acfs/ZEUSS AUTOLOGIN
+                      TBY/wallet_root/tde/
+
+OPEN                                                   AUTOLOGIN
+OPEN                                                   AUTOLOGIN
+
+15.Artk MRP başlatabiliriz.
+
+alter database recover managed standby database using current logfile disconnect from session;
+
+16. DB'mizi cluster sistemine ekliyoruz.
+
+srvctl add database -db THOR -oraclehome /u01/app/oracle/product/19.0.0.0/dbhome_1 -spfile +DATA_THOR/THORDRCT/PARAMETERFILE/spfile.257.1108551973 -dbname THORDRCT -diskgroup DATA_THOR,RECO_THOR2
+srvctl add instance -d THOR -i THOR -n paytendrctemp
+srvctl add instance -d ZEUSSTBY -i ZEUSSTBY2 -n marsmsucl02
+srvctl modify database -d ZEUSSTBY -y AUTOMATIC
+srvctl modify database -d ZEUSSTBY -r PHYSICAL_STANDBY
+
+17. DB'mize servislerini ekliyoruz.
+
+srvctl add service -d ZEUSSTBY -pdb NESTPAY -service other -preferred  "ZEUSSTBY1,ZEUSSTBY2"
+srvctl add service -d ZEUSSTBY -pdb NESTPAY -service webpos1 -preferred  "ZEUSSTBY1,ZEUSSTBY2"
+srvctl add service -d ZEUSSTBY -pdb NESTPAY -service webpos2 -preferred  "ZEUSSTBY1,ZEUSSTBY2"
+srvctl status service -d ZEUSSTBY 
+srvctl start service -d ZEUSSTBY -s other  
+srvctl start service -d ZEUSSTBY -s webpos1 
+srvctl start service -d ZEUSSTBY -s webpos2 
