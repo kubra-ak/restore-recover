@@ -62,6 +62,6 @@ ALTER DATABASE DROP LOGFILE GROUP 2;
 
 
 bittikten sonra gerekli configürasyonları yapıp MRP başlat
-
+alter database recover managed standby database using current logfile disconnect from session;
 
 pwcopy --dbuniquename ARESDRC /u02/app/oracle/product/19.0.0.0/dbhome_2/dbs/orapwARESDRC '+DATAC1/ARESDRC/'
